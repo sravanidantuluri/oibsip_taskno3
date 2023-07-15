@@ -1,0 +1,209 @@
+package javalab;
+
+import java.sql.*;
+import java.util.Scanner;
+
+public class Main {
+
+    private static Connection connection;
+    private static Statement statement;
+    private static PreparedStatement preparedStatement;
+    private static ResultSet resultSet;
+    private static Scanner scanner;
+
+    public static void main(String[] args) {
+        try {
+        	String db_url = "jdbc:oracle:thin:@localhost:1521:XE";
+        	DriverManager.registerDriver(new oracle.jdbc.driver.OracleDriver());
+			connection = DriverManager.getConnection(db_url, "system","qwerty");
+            statement = connection.createStatement();
+            scanner = new Scanner(System.in);
+
+            System.out.println("WELCOME TO DS ATM!");
+            System.out.println("Enter User ID: ");
+            String userId = scanner.next();
+            System.out.println("Enter PIN: ");
+            String userPin =scanner.next();
+
+            if (!authenticateUser(userId, userPin)) {
+                System.out.println("Authentication failed. Exiting...");
+                return;
+            }
+
+            System.out.println("Authentication successful!");
+
+            int choice;
+            do {
+            	System.out.println("\nMENU:");
+                System.out.println("1. View Transactions History");
+                System.out.println("2. Withdraw");
+                System.out.println("3. Deposit");
+                System.out.println("4. Transfer");
+                System.out.println("5. Quit");
+                System.out.print("Enter your choice: ");
+                choice =scanner.nextInt();
+
+                switch (choice) {
+                    case 1:
+                        displayTransactionHistory(userId);
+                        break;
+                    case 2:
+                        performWithdrawal(userId);
+                        break;
+                    case 3:
+                        performDeposit(userId);
+                        break;
+                    case 4:
+                        performTransfer(userId);
+                        break;
+                    case 5:
+                        System.out.println("Thank you for using the DS ATM.");
+                        System.out.println("Create your account in DS bank and get amazing benefits.");
+                        break;
+                    default:
+                        System.out.println("Please enter correct the choice....");
+                }
+            } while (choice != 5);
+            resultSet.close();
+            
+            statement.close();
+     
+            connection.close();
+     
+            scanner.close();
+        } 
+        catch (SQLException e) {
+            e.printStackTrace();
+        } 
+    }
+
+    private static boolean authenticateUser(String userId, String userPin) throws SQLException {
+        String query = "SELECT * FROM atmusers WHERE user_id = ? AND pin = ?";
+        preparedStatement = connection.prepareStatement(query);
+        preparedStatement.setString(1, userId);
+        preparedStatement.setString(2, userPin);
+        resultSet = preparedStatement.executeQuery();
+        return resultSet.next();
+    }
+
+
+    private static void displayTransactionHistory(String userId) throws SQLException {
+        String query = "SELECT * FROM atmtransactions WHERE user_id = ? ";
+        preparedStatement = connection.prepareStatement(query);
+        preparedStatement.setString(1, userId);
+        resultSet = preparedStatement.executeQuery();
+
+        System.out.println("\nTransaction History:");
+        System.out.println("      User ID     |     Transaction Type     |      Amount");
+        System.out.println("-----------------------------------------------");
+        while (resultSet.next()) {
+            String transactionId = resultSet.getString("user_id");
+            String transactionType = resultSet.getString("type");
+            double amount = resultSet.getDouble("amount");
+            System.out.println( "   " + transactionId + "     "+ "      " + transactionType + "        " + amount);
+        }
+    }
+
+    private static void performWithdrawal(String userId) throws SQLException {
+    	System.out.print("Enter the amount to withdraw (in multiples of 100  or 500): ");
+        double withdrawalAmount = scanner.nextDouble();
+
+        if (withdrawalAmount <= 0) {
+            System.out.println("Invalid amount.");
+            return;
+        }
+
+        double balance = getBalance(userId);
+
+        if (balance < withdrawalAmount) {
+            System.out.println("Insufficient funds.");
+            return;
+        }
+
+        updateBalance(userId, balance - withdrawalAmount);
+        addTransaction(userId, "Withdrawal", withdrawalAmount);
+        System.out.println("Withdrawal successful.");
+    }
+
+    private static void performDeposit(String userId) throws SQLException {
+    	System.out.print("Enter the amount to deposit: ");
+        double depositAmount = scanner.nextDouble();
+
+        if (depositAmount <= 0) {
+            System.out.println("Invalid amount.");
+            return;
+        }
+
+        double balance = getBalance(userId);
+        updateBalance(userId, balance + depositAmount);
+        addTransaction(userId, "Deposit", depositAmount);
+        System.out.println("Amount Deposited successfully.");
+    }
+
+    private static void performTransfer(String userId) throws SQLException {
+    	System.out.print("Enter the recipient's ID: ");
+        String recipientId = scanner.next();
+
+        if (!userExists(recipientId)) {
+            System.out.println("Recipient not found.");
+            return;
+        }
+        System.out.println("Enter the amount to transfer: ");
+        double transferAmount = scanner.nextDouble();
+
+        if (transferAmount <= 0) {
+            System.out.println("Invalid amount.");
+            return;
+        }
+
+        double balance = getBalance(userId);
+
+        if (balance < transferAmount) {
+            System.out.println("Insufficient funds.");
+            return;
+        }
+
+        updateBalance(userId, balance - transferAmount);
+        updateBalance(recipientId, getBalance(recipientId) + transferAmount);
+        addTransaction(userId, "Transfer to " + recipientId, transferAmount);
+        System.out.println("Transfer successful.");
+    }
+
+    private static double getBalance(String userId) throws SQLException {
+        String query = "SELECT balance FROM atmusers WHERE user_id = ?";
+        preparedStatement = connection.prepareStatement(query);
+        preparedStatement.setString(1, userId);
+        resultSet = preparedStatement.executeQuery();
+
+        if (resultSet.next()) {
+            return resultSet.getDouble("balance");
+        }
+
+        throw new SQLException("User not found.");
+    }
+
+    private static void updateBalance(String userId, double newBalance) throws SQLException {
+        String query = "UPDATE atmusers SET balance = ? WHERE user_id = ?";
+        preparedStatement = connection.prepareStatement(query);
+        preparedStatement.setDouble(1, newBalance);
+        preparedStatement.setString(2, userId);
+        preparedStatement.executeUpdate();
+    }
+
+    private static void addTransaction(String userId, String transactionType, double amount) throws SQLException {
+        String query = "INSERT INTO atmtransactions (user_id, type, amount) VALUES (?, ?, ?)";
+        preparedStatement = connection.prepareStatement(query);
+        preparedStatement.setString(1, userId);
+        preparedStatement.setString(2, transactionType);
+        preparedStatement.setDouble(3, amount);
+        preparedStatement.executeUpdate();
+    }
+
+    private static boolean userExists(String userId) throws SQLException {
+        String query = "SELECT * FROM atmusers WHERE user_id = ?";
+        preparedStatement = connection.prepareStatement(query);
+        preparedStatement.setString(1, userId);
+        resultSet = preparedStatement.executeQuery();
+        return resultSet.next();
+    }
+}
